@@ -1,120 +1,155 @@
 from tkinter import *
+from tkinter import ttk
 import tkintermapview
+import requests
+from bs4 import BeautifulSoup
 
-stations: list = []
+# ===================== LISTY =====================
+stacje_meteo = []
+pracownicy = []
+klienci = []
 
-class BikeStation:
-    def __init__(self, name: str, location: str):
-        self.name = name
-        self.location = location
-        self.coordinates = self.get_coordinates()
-        self.marker = map_widget.set_marker(self.coordinates[0], self.coordinates[1], text=self.name)
+# ===================== KLASY =====================
+class StacjaMeteo:
+    def __init__(self, nazwa, lokalizacja):
+        self.nazwa = nazwa
+        self.lokalizacja = lokalizacja
+        self.wspolrzedne = self.pobierz_wspolrzedne()
+        self.marker = map_widget.set_marker(self.wspolrzedne[0], self.wspolrzedne[1], text=f"Wypożyczalnia: {self.nazwa}")
 
-    def get_coordinates(self) -> list:
-        import requests
-        from bs4 import BeautifulSoup
-
-        url = f'https://pl.wikipedia.org/wiki/{self.location}'
+    def pobierz_wspolrzedne(self):
+        url = f"https://pl.wikipedia.org/wiki/{self.lokalizacja}"
         response = requests.get(url).text
-        response_html = BeautifulSoup(response, 'html.parser')
-        longitude = float(response_html.select('.longitude')[1].text.replace(',', '.'))
-        latitude = float(response_html.select('.latitude')[1].text.replace(',', '.'))
+        soup = BeautifulSoup(response, "html.parser")
+        latitude = float(soup.select(".latitude")[1].text.replace(",", "."))
+        longitude = float(soup.select(".longitude")[1].text.replace(",", "."))
         return [latitude, longitude]
 
-def add_station():
-    name = entry_name.get()
-    location = entry_location.get()
-    stations.append(BikeStation(name=name, location=location))
-    show_stations()
-    entry_name.delete(0, END)
-    entry_location.delete(0, END)
-    entry_name.focus()
+class Pracownik:
+    def __init__(self, imie, nazwisko, stacja):
+        self.imie = imie
+        self.nazwisko = nazwisko
+        self.stacja = stacja
+        self.wspolrzedne = stacja.wspolrzedne
+        self.marker = map_widget.set_marker(self.wspolrzedne[0], self.wspolrzedne[1], text=f"Pracownik: {self.imie} {self.nazwisko}")
 
-def show_stations():
-    listbox.delete(0, END)
-    for idx, station in enumerate(stations):
-        listbox.insert(idx, f'{idx + 1}. {station.name} | {station.location}')
+class Klient:
+    def __init__(self, imie, stacja):
+        self.imie = imie
+        self.stacja = stacja
+        self.wspolrzedne = stacja.wspolrzedne
+        self.marker = map_widget.set_marker(self.wspolrzedne[0], self.wspolrzedne[1], text=f"Klient: {self.imie}")
 
-def remove_station():
-    i = listbox.index(ACTIVE)
-    stations[i].marker.delete()
-    stations.pop(i)
-    show_stations()
+# ===================== FUNKCJE MAP =====================
+def wyczysc_markery():
+    for obiekt in stacje_meteo + pracownicy + klienci:
+        if hasattr(obiekt, 'marker') and obiekt.marker:
+            obiekt.marker.delete()
 
-def edit_station():
-    i = listbox.index(ACTIVE)
-    entry_name.insert(0, stations[i].name)
-    entry_location.insert(0, stations[i].location)
-    button_add.config(text="Zapisz", command=lambda: update_station(i))
+def pokaz_mape_stacji():
+    wyczysc_markery()
+    for s in stacje_meteo:
+        s.marker = map_widget.set_marker(s.wspolrzedne[0], s.wspolrzedne[1], text=f"Wypożyczalnia: {s.nazwa}")
 
-def update_station(i):
-    stations[i].marker.delete()
-    stations[i].name = entry_name.get()
-    stations[i].location = entry_location.get()
-    stations[i].coordinates = stations[i].get_coordinates()
-    stations[i].marker = map_widget.set_marker(stations[i].coordinates[0], stations[i].coordinates[1], text=stations[i].name)
-    show_stations()
-    button_add.config(text="Dodaj", command=add_station)
-    entry_name.delete(0, END)
-    entry_location.delete(0, END)
+def pokaz_mape_pracownikow():
+    wyczysc_markery()
+    for p in pracownicy:
+        p.marker = map_widget.set_marker(p.wspolrzedne[0], p.wspolrzedne[1], text=f"Pracownik: {p.imie} {p.nazwisko}")
 
-def show_station_details():
-    i = listbox.index(ACTIVE)
-    label_name_val.config(text=stations[i].name)
-    label_location_val.config(text=stations[i].location)
-    map_widget.set_zoom(12)
-    map_widget.set_position(stations[i].coordinates[0], stations[i].coordinates[1])
+def pokaz_mape_klientow():
+    wyczysc_markery()
+    for k in klienci:
+        k.marker = map_widget.set_marker(k.wspolrzedne[0], k.wspolrzedne[1], text=f"Klient: {k.imie}")
 
+# ===================== FUNKCJE FORMULARZY =====================
+def dodaj_stacje():
+    nazwa = entry_nazwa_stacji.get()
+    lokalizacja = entry_lokalizacja_stacji.get()
+    if nazwa and lokalizacja:
+        stacja = StacjaMeteo(nazwa, lokalizacja)
+        stacje_meteo.append(stacja)
+        entry_nazwa_stacji.delete(0, END)
+        entry_lokalizacja_stacji.delete(0, END)
+        update_comboboxes()
+        pokaz_mape_stacji()
+
+def dodaj_pracownika():
+    imie = entry_imie_pracownika.get()
+    nazwisko = entry_nazwisko_pracownika.get()
+    indeks = combo_stacja_pracownika.current()
+    if imie and nazwisko and indeks >= 0:
+        p = Pracownik(imie, nazwisko, stacje_meteo[indeks])
+        pracownicy.append(p)
+        entry_imie_pracownika.delete(0, END)
+        entry_nazwisko_pracownika.delete(0, END)
+        combo_stacja_pracownika.set('')
+        pokaz_mape_pracownikow()
+
+def dodaj_klienta():
+    imie = entry_imie_klienta.get()
+    indeks = combo_stacja_klienta.current()
+    if imie and indeks >= 0:
+        k = Klient(imie, stacje_meteo[indeks])
+        klienci.append(k)
+        entry_imie_klienta.delete(0, END)
+        combo_stacja_klienta.set('')
+        pokaz_mape_klientow()
+
+def update_comboboxes():
+    nazwy = [s.nazwa for s in stacje_meteo]
+    combo_stacja_pracownika['values'] = nazwy
+    combo_stacja_klienta['values'] = nazwy
+
+# ===================== GUI =====================
 root = Tk()
-root.title('Mapa wypożyczalni rowerów')
-root.geometry('1200x700')
+root.geometry("1200x950")
+root.title("System zarządzania wypożyczalniami rowerów")
 
-frame_list = Frame(root)
-frame_form = Frame(root)
-frame_details = Frame(root)
-frame_map = Frame(root)
+# ----- PRZYCISKI MAPY -----
+frame_kontrola_mapy = Frame(root)
+frame_kontrola_mapy.pack(pady=10)
 
-frame_list.grid(row=0, column=0, padx=50)
-frame_form.grid(row=0, column=1)
-frame_details.grid(row=1, column=0, columnspan=2)
-frame_map.grid(row=2, column=0, columnspan=2)
+Button(frame_kontrola_mapy, text="Mapa wypożyczalni", command=pokaz_mape_stacji).grid(row=0, column=0, padx=5)
+Button(frame_kontrola_mapy, text="Mapa pracowników", command=pokaz_mape_pracownikow).grid(row=0, column=1, padx=5)
+Button(frame_kontrola_mapy, text="Mapa klientów", command=pokaz_mape_klientow).grid(row=0, column=2, padx=5)
 
-# Lista stacji
-Label(frame_list, text='Lista wypożyczalni rowerowych').grid(row=0, column=0)
-listbox = Listbox(frame_list, width=60)
-listbox.grid(row=1, column=0, columnspan=3)
-Button(frame_list, text='Szczegóły', command=show_station_details).grid(row=2, column=0)
-Button(frame_list, text='Usuń', command=remove_station).grid(row=2, column=1)
-Button(frame_list, text='Edytuj', command=edit_station).grid(row=2, column=2)
+# ----- MAPA -----
+frame_mapa = Frame(root)
+frame_mapa.pack()
 
-# Formularz
-Label(frame_form, text='Nowa stacja').grid(row=0, column=0, columnspan=2)
-Label(frame_form, text='Nazwa').grid(row=1, column=0, sticky=W)
-Label(frame_form, text='Miejscowość').grid(row=2, column=0, sticky=W)
-
-entry_name = Entry(frame_form)
-entry_name.grid(row=1, column=1)
-entry_location = Entry(frame_form)
-entry_location.grid(row=2, column=1)
-
-button_add = Button(frame_form, text='Dodaj', command=add_station)
-button_add.grid(row=3, column=0, columnspan=2)
-
-# Szczegóły stacji
-Label(frame_details, text='Szczegóły stacji:').grid(row=0, column=0, columnspan=2)
-
-Label(frame_details, text='Nazwa:').grid(row=1, column=0, sticky=E)
-label_name_val = Label(frame_details, text='---')
-label_name_val.grid(row=1, column=1, sticky=W)
-
-Label(frame_details, text='Miejscowość:').grid(row=1, column=2, sticky=E)
-label_location_val = Label(frame_details, text='---')
-label_location_val.grid(row=1, column=3, sticky=W)
-
-# Mapa
-map_widget = tkintermapview.TkinterMapView(frame_map, width=1200, height=450)
-map_widget.grid(row=0, column=0, columnspan=2)
-map_widget.set_position(52.23, 21.00)  # Warszawa
+map_widget = tkintermapview.TkinterMapView(frame_mapa, width=1150, height=600, corner_radius=5)
+map_widget.set_position(52.23, 21.0)
 map_widget.set_zoom(6)
+map_widget.pack()
+
+# ----- FORMULARZE -----
+frame_formularze = Frame(root)
+frame_formularze.pack(pady=10)
+
+# STACJA
+Label(frame_formularze, text="Dodaj stację:").grid(row=0, column=0, sticky=W)
+entry_nazwa_stacji = Entry(frame_formularze, width=20)
+entry_nazwa_stacji.grid(row=0, column=1)
+entry_lokalizacja_stacji = Entry(frame_formularze, width=20)
+entry_lokalizacja_stacji.grid(row=0, column=2)
+Button(frame_formularze, text="Dodaj stację", command=dodaj_stacje).grid(row=0, column=3)
+
+# PRACOWNIK
+Label(frame_formularze, text="Dodaj pracownika:").grid(row=1, column=0, sticky=W)
+entry_imie_pracownika = Entry(frame_formularze, width=15)
+entry_imie_pracownika.grid(row=1, column=1)
+entry_nazwisko_pracownika = Entry(frame_formularze, width=15)
+entry_nazwisko_pracownika.grid(row=1, column=2)
+combo_stacja_pracownika = ttk.Combobox(frame_formularze, width=20, state="readonly")
+combo_stacja_pracownika.grid(row=1, column=3)
+Button(frame_formularze, text="Dodaj pracownika", command=dodaj_pracownika).grid(row=1, column=4)
+
+# KLIENT
+Label(frame_formularze, text="Dodaj klienta:").grid(row=2, column=0, sticky=W)
+entry_imie_klienta = Entry(frame_formularze, width=15)
+entry_imie_klienta.grid(row=2, column=1)
+combo_stacja_klienta = ttk.Combobox(frame_formularze, width=20, state="readonly")
+combo_stacja_klienta.grid(row=2, column=2)
+Button(frame_formularze, text="Dodaj klienta", command=dodaj_klienta).grid(row=2, column=3)
 
 root.mainloop()
